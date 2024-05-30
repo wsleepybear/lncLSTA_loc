@@ -52,16 +52,13 @@ class RNAdataset(Dataset):
             self.kmersNum = kmersCnt
             if os.path.exists(f'cache/{method}_k{self.kmer}_d{emb_dim}.pkl'):
                 with open(f'cache/{method}_k{self.kmer}_d{emb_dim}.pkl', 'rb') as f:
-                    # self.seq2emb = pickle.load(f)
                     self.char2vec = pickle.load(f)
             else:
                 seq = [i+['<EOS>'] for i in self.all_seq]
                 model = Word2Vec(seq, min_count=0, window=window, vector_size=emb_dim, workers=workers, sg=sg, epochs=10)
                 self.char2vec = np.zeros((self.kmersNum, emb_dim), dtype=np.float32)
-                # self.seq2emb = {}
                 for i in range(1,self.kmersNum):
                     self.char2vec[i] = model.wv[self.id2kmers[i]]
-                    # self.seq2emb[self.id2kmers[i]] = model.wv[self.id2kmers[i]]
                 print("seq vector dimension: {}".format(emb_dim))
                 with open(f'cache/{method}_k{self.kmer}_d{emb_dim}.pkl', 'wb') as f:
                     pickle.dump(self.char2vec, f, protocol=4)
@@ -70,39 +67,11 @@ class RNAdataset(Dataset):
             self.one2id,self.id2one = {"A":1,"T":2,"C":3,"G":4},["A","T","C","G"]
             self.seq_vec = np.array([[self.one2id[i] for i in s] for s in self.seq])
     def class2num(self,label):
-        label_name=[]
-        label_id=[]
-        for i in label:
-            if len(label_name)<5 and i not in label_name:    
-                label_name.append(i)
-                label_id.append(len(label_id))
+        label_name=["Cytoplasm","Nucleus","Exosome","Ribosome","Cytosol"]
+        label_id=[0,1,2,3,4]        
         label2num=dict(zip(label_name,label_id))
         num=label.map(label2num)
         label2onehot = dict(zip(label_name,np.eye(len(label_id))))
         onehot=label.map(label2onehot)
         return onehot,num
-    def loadgraph(self,filepath,fold_algo='rnaplfold',probabilistic=True,w=200,):
-        prefix = '%s_%s_' % (fold_algo, probabilistic)
-        prefix += '200_'
-        if os.path.exists(os.path.join(os.path.dirname(filepath), '{}rel_mat.obj'.format(prefix))):
-            pass
-        else:
-            fold_rna_from_file(filepath)
-        sp_rel_matrix = pickle.load(open(os.path.join(os.path.dirname(filepath), '{}rel_mat.obj'.format(prefix)), 'rb'))
-        sp_prob_matrix = pickle.load(open(os.path.join(os.path.dirname(filepath), '{}prob_mat.obj'.format(prefix)), 'rb'))
-        adjacency_matrix = np.array(sp_rel_matrix)
-        probability_matrix = np.array(sp_prob_matrix)
-        matrix = (adjacency_matrix, probability_matrix)
-
-        adj_list=[]
-        prob_list=[]
-        for i in range(len(matrix[0])):
-            link=matrix[0][i]
-            prob=matrix[1][i]
-            adj = sp.coo_matrix(link)
-            indices = np.vstack((adj.row, adj.col))  # 我们真正需要的coo形式
-            adj = torch.LongTensor(indices)
-            adj_list.append(adj)
-            prob_list.append(prob.data) 
-        self.adj_list=adj_list
-        self.prob_list=prob_list
+    

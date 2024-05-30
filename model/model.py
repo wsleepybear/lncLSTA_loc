@@ -17,13 +17,52 @@ class embedding(pl.LightningModule):
         self.embed = nn.Embedding.from_pretrained(
             utils.loademb(args),
         )
-        # self.dropout=nn.Dropout(args.dropout)
 
     def forward(self, x):
-        # x=self.dropout(self.embed(x))
         x = [self.embed(i.long()).unsqueeze(0) for i in x]
         return x
 
+
+class CNN_Pool(pl.LightningModule):
+    def __init__(self, filter_num, kernel_size,layer,spp_size,):
+        super(CNN_Pool, self).__init__()
+        self.spp_size=spp_size
+        self.cnn_list=nn.ModuleList()
+        self.pool_list=nn.ModuleList()
+        for i in range(layer-1):
+            self.cnn_list.append(nn.LazyConv1d(out_channels=filter_num*2, kernel_size=kernel_size))
+            self.pool_list.append(nn.AdaptiveMaxPool1d(spp_size*(2**(layer-i-1))))
+        self.cnn_list.append(nn.LazyConv1d(out_channels=filter_num, kernel_size=kernel_size))
+        self.pool_list.append(nn.AdaptiveMaxPool1d(spp_size))
+        self.batchnorm = nn.LazyBatchNorm1d()
+        self.relu=nn.ReLU()
+        self.drop=nn.Dropout(0.5)
+    def forward(self, x):
+        # x: batchSize × seqLen × dim
+
+        for j in range(len(self.cnn_list)):
+            x_list=[]
+            x = [self.cnn_list[j](i.transpose(2, 1)) for i in x]
+            if j!=len(self.cnn_list)-1:
+                for i in x :
+                    if i.shape[2]>self.spp_size*(2**(len(self.cnn_list)-j-1)):
+                        x_list.append(self.relu(self.pool_list[j](i).transpose(1, 2)))
+                    else:
+                        x_list.append(self.relu(i.transpose(1, 2)))
+                x=x_list
+            else :
+                for i in x :
+                    if i.shape[2]>self.spp_size*(2**(len(self.cnn_list)-j-1)):
+                        x_list.append(self.pool_list[j](i).transpose(1, 2))
+                    else:
+                        x_list.append(i.transpose(1, 2))
+                x=x_list
+
+        x = torch.cat(x, dim=0)
+        x = self.batchnorm(x)
+        # x=self.relu(x)
+        x=self.drop(x)
+        return x
 
 
 class textcnn(pl.LightningModule):
@@ -110,7 +149,6 @@ class MLP(nn.Module):
 
     def __init__(self, input_dim, output_dim, dropout=0.5, L=1):  # L=nb_hidden_layers
         super().__init__()
-        # list_FC_layers = [nn.Linear(input_dim//2**l, input_dim//2**(l+1), bias=True) for l in range(L)]
         list_FC_layers = []
         list_FC_layers.append(nn.Linear(input_dim, 128*2, bias=True))
         list_FC_layers.append(nn.Linear(128*2, output_dim, bias=True))
@@ -141,27 +179,38 @@ class BiLSTM(pl.LightningModule):
         )
 
     def forward(self, x):
-        # x,_=self.BiLSTM1(x)
         x, _ = self.BiLSTM(x)
         return x
 
 
-class lncG(pl.LightningModule):
+class lncLSTA(pl.LightningModule):
     def __init__(self,):
-        super(lncG, self).__init__()
+        super(lncLSTA, self).__init__()
 
         self.args = Config.parse_args()
         self.embed = embedding(self.args)
+        self.cnn = CNN_Pool(self.args.cnn1_num, self.args.cnn1_kernel,3,self.args.spp_size)
+        self.cnn2 = CNN_Pool(self.args.cnn1_num, self.args.cnn2_kernel,3,self.args.spp_size)
+
         self.lsatt1 = lsATT(self.args.cnn1_num, self.args.lsatt1_head,
                              self.args.lsatt1_window_size, self.args.lsatt1_r, self.args.attdrop)
         self.lsatt2 = lsATT(self.args.cnn1_num, self.args.lsatt1_head,
                              self.args.lsatt1_window_size, self.args.lsatt1_r, self.args.attdrop)
-        # self.GCN = gin(4, self.args.gout)
+
         self.lstm = BiLSTM(self.args.cnn1_num,
                            self.args.cnn1_num, self.args.dropout)
         self.lstm2=BiLSTM(self.args.cnn1_num,
                            self.args.cnn1_num, self.args.dropout)
-
+        self.lastcnn1 = textcnn(
+            self.args.fc1in, self.args.contextSizeList, self.args.convdrop)
+        self.lastcnn2 = textcnn(
+            self.args.fc1in, self.args.contextSizeList, self.args.convdrop)
+        self.lastcnn3 = textcnn(
+            self.args.fc1in, self.args.contextSizeList, self.args.convdrop)
+        self.lastcnn4 = textcnn(
+            self.args.fc1in, self.args.contextSizeList, self.args.convdrop)
+        # self.lastcnn3 = lastcnn3(
+        #     self.args.fc3in, self.args.contextSizeList, self.args.convdrop)
         self.pool = nn.AdaptiveMaxPool1d(64)
         self.sigmod = nn.Sigmoid()
         self.softmax = nn.Softmax()
@@ -171,14 +220,16 @@ class lncG(pl.LightningModule):
             nn.LazyLinear(5)
         )
         self.fc1=nn.LazyLinear(5)
-        # self.MLP=MLP()
+
         self.dropout = nn.Dropout(self.args.dropout)
         self.batchnorm = nn.LazyBatchNorm1d()
         self.layernorm = nn.LayerNorm(128)
     def forward(self, seqs):
         features = self.embed(seqs)
 
-        # features = self.spp(features)
+        features_1 = self.cnn(features)
+        features_3 = self.cnn2(features)
+
         features1 = self.lstm(features_1)
         features2 = self.lsatt1(features_1)
         features3= self.lstm2(features_3)
@@ -193,3 +244,4 @@ class lncG(pl.LightningModule):
         features = self.softmax(features)
         return features
     
+

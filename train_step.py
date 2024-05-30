@@ -14,7 +14,7 @@ import pandas as pd
 import utils
 import pytorch_lightning as pl
 import Config
-from model.bilstm_gcn import lncG
+from model.model import lncLSTA
 
 
 class model_step(pl.LightningModule):
@@ -29,6 +29,16 @@ class model_step(pl.LightningModule):
         optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.args.learning_rate,weight_decay=self.args.weight_decay)
         return [optimizer]
         
+    def training_step(self,batch, batch_idx):
+        feature=batch[0][0]
+        label=torch.tensor(batch[1][0]).to(self.device).long()
+        one_label=torch.cat([i.unsqueeze(0) for i in batch[1][1]])
+        pred=self.model(feature)
+        label=label
+        loss_function=utils.FocalCrossEntropyLoss()
+        loss=loss_function(pred,label)
+        self.log('loss', loss,prog_bar=True)
+        return loss
 
     def validation_step(self,batch, batch_idx):
         feature=batch[0][0]
