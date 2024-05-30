@@ -1,5 +1,5 @@
-# LncLSTA
-This project is a PyTorch Lightning implementation of a machine learning model for RNA sequence analysis. It uses a Long Short Transformer model to analyze RNA sequences and predict their properties.
+## LncLSTA
+This project is a PyTorch Lightning implementation of a machine learning model for RNA sequence analysis. It uses a Long Short Transformer model to analyze RNA sequences and predict their subcellular localization.
 
 ### Getting Started
 These instructions will get you a copy of the project up and running on your local machine for development and testing purposes.
